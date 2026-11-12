@@ -1,0 +1,27 @@
+sori-metrics
+Copyright (c) 2026 Jeff (p14jeffwest)
+Licensed under the MIT License or the Apache License, Version 2.0, at your option.
+
+This crate is an independent implementation written from the published Recommendation and
+papers (for ViSQOL chiefly Chinen et al., QoMEX 2020). It is not affiliated with or endorsed
+by ITU, OPTICOM, Google, or the authors of the 2f model, ViSQOL, or the Python reference
+tools. PEAQ(R) is a registered trademark of OPTICOM GmbH.
+
+The ViSQOL-compatible metric implements the audio (music) mode only; it is not intended for
+speech quality estimation.
+
+-------------------------------------------------------------------------------
+Bundled data: ViSQOL audio-mode SVR model
+-------------------------------------------------------------------------------
+
+File:     data/visqol/libsvm_nu_svr_model.txt (included unchanged)
+Source:   https://github.com/google/visqol  (model/libsvm_nu_svr_model.txt,
+          branch master, retrieved 2026-11-12)
+SHA-256:  1e8246ed33bf36dc5c859351f7110f2cd31f98661989715c0fcf974ec48d3e2e
+Owner:    Google LLC
+License:  Apache License, Version 2.0 — full text in data/visqol/LICENSE-Apache-2.0
+          (also https://www.apache.org/licenses/LICENSE-2.0)
+
+The file is a libsvm nu-SVR model (RBF kernel, 32 features, 317 support vectors) that maps
+per-band similarity to MOS in ViSQOL's audio mode. It is used here as data only; the code
+that reads and evaluates it was written from the libsvm format documentation.

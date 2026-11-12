@@ -1,0 +1,39 @@
+# CI for the public sori-metrics repository (written by scripts/export.sh in sori-mp3).
+# Only the self-contained tests run here: no audio is downloaded and the test data holds no
+# speech items (the gated comparisons that need WAV pairs skip themselves).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain: [stable, "1.85"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: clippy, rustfmt
+      - run: cargo build --all-targets
+      - run: cargo test
+      - run: python3 scripts/check-test-data.py --no-speech
+      - if: matrix.toolchain == 'stable'
+        run: cargo clippy --all-targets -- -D warnings
+      - if: matrix.toolchain == 'stable'
+        run: cargo fmt --check
+      - if: matrix.toolchain == 'stable'
+        run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings

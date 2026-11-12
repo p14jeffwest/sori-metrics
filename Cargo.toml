@@ -1,0 +1,33 @@
+[package]
+name = "sori-metrics"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Objective audio quality metrics in pure Rust: the 2f model (on an ITU-R BS.1387 Basic ear model) and a ViSQOL v3 audio-mode compatible MOS for music"
+license = "MIT OR Apache-2.0"
+authors = ["Jeff (p14jeffwest)"]
+repository = "https://github.com/p14jeffwest/sori-metrics"
+readme = "README.md"
+keywords = ["audio", "quality", "metrics", "visqol", "mos"]
+categories = ["multimedia::audio", "science"]
+include = [
+    "/Cargo.toml",
+    "/README.md",
+    "/NOTICE",
+    "/LICENSE-MIT",
+    "/LICENSE-APACHE",
+    "/src/**/*.rs",
+    "/data/visqol/*",
+    "/examples/twof.rs",
+    "/examples/visqol.rs",
+]
+
+[dependencies]
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+struct_excessive_bools = "allow"
+cast_lossless = "allow"
