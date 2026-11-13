@@ -5,7 +5,7 @@
 //! cargo run --release -p sori-metrics --example twof -- --batch <pairs.tsv>
 //! ```
 //!
-//! Prints one tab-separated line per pair: `mushra  adb  avg_mod_diff1  seconds`.
+//! Prints one tab-separated line per pair: `mushra  adb  avg_mod_diff1  seconds  total_nmr`.
 
 use std::time::Instant;
 
@@ -19,11 +19,12 @@ fn one(ref_path: &str, test_path: &str) -> Result<String, String> {
     let s = sori_metrics::twof_score(&a.samples, &b.samples, a.sample_rate, a.channels)
         .map_err(|e| e.to_string())?;
     Ok(format!(
-        "{:.6}\t{:.6}\t{:.6}\t{:.3}",
+        "{:.6}\t{:.6}\t{:.6}\t{:.3}\t{:.6}",
         s.mushra,
         s.adb,
         s.avg_mod_diff1,
-        t0.elapsed().as_secs_f64()
+        t0.elapsed().as_secs_f64(),
+        s.total_nmr
     ))
 }
 

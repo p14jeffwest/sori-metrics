@@ -5,6 +5,8 @@ Objective perceptual audio quality metrics in pure Rust — no dependencies, no 
 - **2f model** (Kastner & Herre, 2019): estimated mean MUSHRA score (0–100) from two Model Output
   Variables of an **ITU-R BS.1387 (PEAQ®) Basic Version compatible** FFT ear model.
 - **ViSQOL v3 audio-mode compatible** MOS-LQO (1–5) for music and general audio.
+- **Total NMR** (`Total NMR_B`, dB): noise-to-mask ratio of the same ear model, reported with
+  2f (`twof.total_nmr`) from the same pass.
 
 **ViSQOL here is the audio (music) mode only. It is not intended or validated for speech
 quality estimation**, and there is no speech mode (no voice activity detection, no speech
@@ -20,7 +22,7 @@ method the code follows.
 
 ```toml
 [dependencies]
-sori-metrics = "0.1"
+sori-metrics = "0.2"
 ```
 
 ```rust
@@ -121,6 +123,17 @@ A paired comparison of two settings of that encoder at 128 kbit/s (23 items, mea
 difference [95 % CI]: Python +0.96 [+0.17, +1.75], Rust +0.95 [+0.16, +1.73]) reaches the same
 conclusion.
 
+### Total NMR vs the reference Python measurement (322 pairs)
+
+`Total NMR_B` reproduces a Python implementation of BS.1387 Annex 2 written for the
+measurement harness this crate grew out of (same constants, including three documented
+simplifications worth ≪ 0.1 dB each — see the `peaq` module docs). On 23 items × 14 encoder
+settings (MP3 CBR 96–192 and VBR V0/V2/V5 of the in-development encoder, LAME 3.100 at 128 and
+192 kbit/s CBR and V0/V2/V5; 320 distinct decodes): |Δ| at most 1.8e-14 dB. Eight paired
+comparisons give the same mean differences and confidence intervals to three decimals.
+On a 211 s stereo pair the Python tool takes 8.3 s and 3.5 GB; here Total NMR adds about 25 %
+to the 2f time (3.9 s for both) and no memory.
+
 ### ViSQOL vs `visqol-python` 3.8.0 (368 pairs)
 
 23 items × 16 decodes: the MP3 encoder above and LAME at 64/96/128 kbit/s, Opus VBR and CBR at
@@ -211,8 +224,8 @@ Measure on your own files with
   digital silence differ slightly (largest effect on the 92 pairs: +0.53 MUSHRA).
 - **2f, very short transients**: `AvgModDiff1` is 5–7 % lower on 6 ms clicks (synthetic);
   within 1 % on music.
-- Only what these two metrics need is implemented: no other PEAQ® MOVs, no ODG, no ViSQOL
-  speech mode, no resampling.
+- Only what these metrics need is implemented: of the PEAQ® Basic MOVs only `AvgModDiff1B`,
+  `ADBB` and `Total NMR_B`; no ODG, no ViSQOL speech mode, no resampling.
 - ViSQOL fields `fvdegenergy`, `fstdnsim` and `fvnsim10` are not computed.
 
 ## Sources and provenance

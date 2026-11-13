@@ -24,6 +24,11 @@ pub struct TwoF {
     pub adb: f64,
     /// `AvgModDiff1B` (§4.2.3 of BS.1387 Annex 2).
     pub avg_mod_diff1: f64,
+    /// `Total NMR_B` in dB (§4.5.1 of BS.1387 Annex 2; lower is better), computed in the same
+    /// pass from the same frames — see [`crate::peaq`] ("Total NMR"). Not part of the 2f
+    /// score. NaN for a window ([`Detail::windows`]) whose frames all lie outside the
+    /// reference's data range.
+    pub total_nmr: f64,
 }
 
 /// Map the two MOVs to the MUSHRA-like score (Kastner & Herre 2019, published parameters).
@@ -121,6 +126,7 @@ impl From<peaq::Movs> for TwoF {
             mushra: mushra_from_movs(m.avg_mod_diff1, m.adb),
             adb: m.adb,
             avg_mod_diff1: m.avg_mod_diff1,
+            total_nmr: m.total_nmr,
         }
     }
 }

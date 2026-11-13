@@ -6,8 +6,22 @@
 //! ambiguous are marked `INTERPRETATION` with the reading that matched the reference
 //! outputs of the Python 2f tool (outputs only).
 //!
-//! Scope: only what `AvgModDiff1B` and `ADBB` need. Masking, loudness, the error signal and
-//! the other nine MOVs are not computed.
+//! Scope: `AvgModDiff1B` and `ADBB` (the 2f model's inputs) and `Total NMR_B`. Loudness and
+//! the other eight MOVs are not computed.
+//!
+//! # Total NMR
+//!
+//! `Total NMR_B` (§4.5.1) is computed in the same pass, with its own constants that reproduce
+//! the measurement tool it replaces (the sori-mp3 project's own Python implementation of
+//! Annex 2, written from BS.1387-1). Three choices of that tool are kept, each moving results
+//! by ≪ 0.1 dB: the level scaling `fac` (eqs 5–6) from one frame of the 1019.5 Hz sine
+//! instead of ten; band edges and centres from the Bark formula `z = 7·asinh(f/650)` (the last
+//! centre is 17698.877 Hz, Table 6 lists 17690.045 Hz); and the data boundary (§5.2.4.4) taken
+//! per channel, with one frame before the first data frame included. Noise pattern: the
+//! squared difference of the weighted magnitude spectra, grouped into the bands (no internal
+//! noise, no spreading); mask: the reference excitation `Es / 10^(m/10)`, m = 3 dB up to
+//! 12 Bark and 0.25·k·Δz dB above; NMR of a frame: band mean of noise / mask;
+//! `Total NMR = 10·log10(frame mean)`, channels averaged.
 //!
 //! PEAQ® is a registered trademark of OPTICOM GmbH. This is an independent implementation of
 //! the published Recommendation, not affiliated with or endorsed by OPTICOM or ITU.
@@ -15,12 +29,14 @@
 #![allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // frame/bin counts ≪ 2^52
 
 mod bands;
+mod nmr;
 
 use crate::fft::{Complex, Fft};
 use crate::source::{Source, Window};
 use crate::Error;
 pub use bands::Z;
 use bands::{FC, FL, FU};
+use nmr::{NmrModel, BINS};
 
 /// Sampling rate the model is defined for (Annex 2 §2.1.1).
 pub const SAMPLE_RATE: u32 = 48_000;
@@ -50,6 +66,9 @@ pub struct Movs {
     pub avg_mod_diff1: f64,
     /// `ADBB` (§4.7.2).
     pub adb: f64,
+    /// `Total NMR_B` (§4.5.1), dB, channels averaged — see the `nmr` notes in the module
+    /// documentation of [`crate::peaq`].
+    pub total_nmr: f64,
 }
 
 /// Frequency-dependent constants of the FFT ear model, computed once.
@@ -76,6 +95,8 @@ struct Model {
     a_mod: [f64; Z],
     /// `levWt · EThres[k]^0.3` for `TempWt` (eqs 60, 65; levWt = 100, Table 10).
     lev_thres: [f64; Z],
+    /// Constants of `Total NMR_B` ([`nmr`]).
+    nmr: NmrModel,
 }
 
 impl Model {
@@ -155,6 +176,7 @@ impl Model {
             let e_thres = 10f64.powf(0.364 * (FC[k] / 1000.0).powf(-0.8)); // eq 60
             100.0 * e_thres.powf(0.3)
         });
+        let nmr = NmrModel::new(&window);
         Self {
             fft,
             window,
@@ -167,6 +189,7 @@ impl Model {
             a_time,
             a_mod,
             lev_thres,
+            nmr,
         }
     }
 }
@@ -335,6 +358,8 @@ struct RefFrame {
     level: [f64; Z],
     /// `TempWt[n]` (eq 65).
     weight: f64,
+    /// Masked threshold of the NMR measurement ([`nmr`]).
+    mask: [f64; Z],
 }
 
 /// What one frame of one channel contributes from the test side.
@@ -349,6 +374,8 @@ struct FrameOut {
     excitation: [f64; Z],
     modulation: [f64; Z],
     e_bar: [f64; Z],
+    /// Weighted magnitude spectrum of the NMR measurement ([`nmr`]).
+    mag: [f64; BINS],
 }
 
 /// Frame-by-frame ear model of one signal (all channels), §2.1 and §3.2.
@@ -365,6 +392,10 @@ struct Analysis<'m, G: Signal> {
     states: Vec<ChannelState>,
     buf: Vec<Complex>,
     fsp: [Vec<f64>; 2],
+    /// Weighted magnitudes of the NMR measurement for the two packed frames.
+    mag: [Vec<f64>; 2],
+    /// Only the magnitude spectra are wanted (the ear model is skipped).
+    spectra_only: bool,
     /// Mono: the second frame of the last pair, not yet returned.
     pending: Option<FrameOut>,
     next: usize,
@@ -380,6 +411,8 @@ impl<'m, G: Signal> Analysis<'m, G> {
             states: (0..ch).map(|_| ChannelState::default()).collect(),
             buf: vec![(0.0, 0.0); N],
             fsp: [vec![0.0; N / 2 + 1], vec![0.0; N / 2 + 1]],
+            mag: [vec![0.0; BINS], vec![0.0; BINS]],
+            spectra_only: false,
             pending: None,
             next: 0,
         }
@@ -402,10 +435,29 @@ impl<'m, G: Signal> Analysis<'m, G> {
             let (cr, ci) = self.buf[(N - k) % N];
             let (ar, ai) = (0.5 * (zr + cr), 0.5 * (zi - ci));
             let (br, bi) = (0.5 * (zi + ci), -0.5 * (zr - cr));
+            let (pa, pb) = (ar * ar + ai * ai, br * br + bi * bi);
             let g2 = m.gain[k] * m.gain[k];
-            self.fsp[0][k] = g2 * (ar * ar + ai * ai); // eqs 6, 9, 11
-            self.fsp[1][k] = g2 * (br * br + bi * bi);
+            self.fsp[0][k] = g2 * pa; // eqs 6, 9, 11
+            self.fsp[1][k] = g2 * pb;
+            self.mag[0][k] = pa.sqrt() * m.nmr.mag_gain[k];
+            self.mag[1][k] = pb.sqrt() * m.nmr.mag_gain[k];
         }
+    }
+
+    /// Outputs of packed frame `slot` (0 or 1) for channel state `c`.
+    fn output(&mut self, slot: usize, c: usize) -> FrameOut {
+        let mut f = if self.spectra_only {
+            FrameOut {
+                excitation: [0.0; Z],
+                modulation: [0.0; Z],
+                e_bar: [0.0; Z],
+                mag: [0.0; BINS],
+            }
+        } else {
+            self.model.frame(&self.fsp[slot], &mut self.states[c])
+        };
+        f.mag.copy_from_slice(&self.mag[slot]);
+        f
     }
 
     /// Outputs of the next frame, one per channel, in `out`.
@@ -424,10 +476,10 @@ impl<'m, G: Signal> Analysis<'m, G> {
             self.input
                 .prepare(s, s + N + if partner.is_some() { STEP } else { 0 })?;
             self.transform((0, s), partner);
-            out.push(self.model.frame(&self.fsp[0], &mut self.states[0]));
+            let f = self.output(0, 0);
+            out.push(f);
             if partner.is_some() {
-                let f = self.model.frame(&self.fsp[1], &mut self.states[0]);
-                self.pending = Some(f);
+                self.pending = Some(self.output(1, 0));
             }
             return Ok(());
         }
@@ -436,9 +488,11 @@ impl<'m, G: Signal> Analysis<'m, G> {
         while c < ch {
             let pair = (c + 1 < ch).then_some((c + 1, s));
             self.transform((c, s), pair);
-            out.push(self.model.frame(&self.fsp[0], &mut self.states[c]));
+            let f = self.output(0, c);
+            out.push(f);
             if pair.is_some() {
-                out.push(self.model.frame(&self.fsp[1], &mut self.states[c + 1]));
+                let f = self.output(1, c + 1);
+                out.push(f);
             }
             c += 2;
         }
@@ -468,6 +522,7 @@ impl Model {
             excitation: [0.0; Z],
             modulation: [0.0; Z],
             e_bar: [0.0; Z],
+            mag: [0.0; BINS],
         };
         let rate = f64::from(SAMPLE_RATE) / STEP as f64;
         for k in 0..Z {
@@ -486,8 +541,10 @@ impl Model {
         out
     }
 
-    fn ref_frame(&self, f: &FrameOut) -> RefFrame {
+    /// Reference contributions of one frame; `ef` is the channel's NMR time-spreading state.
+    fn ref_frame(&self, f: &FrameOut, ef: &mut [f64; Z]) -> RefFrame {
         RefFrame {
+            mask: self.nmr.mask(&f.mag, ef),
             modulation: f.modulation,
             level: f.excitation.map(|e| 10.0 * e.log10()), // eq 72
             // eq 65 (levWt = 100).
@@ -561,24 +618,42 @@ fn detection(er: f64, et: f64) -> (f64, f64) {
 /// exceeds 200 in any channel (16-bit scale). `None` when no such position exists.
 /// Only the first `len` samples count. Reads the signal in pieces from either end.
 fn data_bounds(x: &mut impl Signal, len: usize) -> Result<Option<(usize, usize)>, Error> {
+    let ch = x.channels();
+    bounds_of(x, len, 0..ch)
+}
+
+/// [`data_bounds`] of each channel on its own (the choice of the NMR measurement, [`nmr`]).
+fn channel_bounds(
+    x: &mut impl Signal,
+    len: usize,
+    ch: usize,
+) -> Result<Vec<Option<(usize, usize)>>, Error> {
+    (0..ch).map(|c| bounds_of(x, len, c..c + 1)).collect()
+}
+
+/// [`data_bounds`] over the channels `chans`.
+fn bounds_of(
+    x: &mut impl Signal,
+    len: usize,
+    chans: core::ops::Range<usize>,
+) -> Result<Option<(usize, usize)>, Error> {
     const PIECE: usize = 1 << 16;
     if len < 5 {
         return Ok(None);
     }
-    let hit = |x: &dyn Fn(usize, usize) -> f64, ch: usize, i: usize| {
-        (0..ch).any(|c| {
+    let hit = |x: &dyn Fn(usize, usize) -> f64, chans: &core::ops::Range<usize>, i: usize| {
+        chans.clone().any(|c| {
             let w: [f64; 5] = core::array::from_fn(|t| x(c, i + t));
             w.iter().map(|v| v.abs()).sum::<f64>() > 200.0
         })
     };
-    let ch = x.channels();
     let last = len - 5; // last start position
     let mut start = None;
     let mut i0 = 0;
     while i0 <= last && start.is_none() {
         let i1 = (i0 + PIECE).min(last + 1);
         x.prepare(i0, i1 + 4)?;
-        start = (i0..i1).find(|&i| hit(&|c, j| x.at(c, j), ch, i));
+        start = (i0..i1).find(|&i| hit(&|c, j| x.at(c, j), &chans, i));
         i0 = i1;
     }
     let Some(start) = start else {
@@ -589,12 +664,15 @@ fn data_bounds(x: &mut impl Signal, len: usize) -> Result<Option<(usize, usize)>
     while i1 > start && end.is_none() {
         let i0 = i1.saturating_sub(PIECE).max(start);
         x.prepare(i0, i1 + 4)?;
-        end = (i0..i1).rev().find(|&i| hit(&|c, j| x.at(c, j), ch, i));
+        end = (i0..i1).rev().find(|&i| hit(&|c, j| x.at(c, j), &chans, i));
         i1 = i0;
     }
     // The start position itself is a hit, so `end` exists.
     Ok(end.map(|e| (start, e + 4)))
 }
+
+/// Data range of the reference for the 2f MOVs, and per channel for `Total NMR`.
+type Bounds = (Option<(usize, usize)>, Vec<Option<(usize, usize)>>);
 
 /// Per-block values of one comparison (one 1024-sample block = one 2048-sample frame).
 #[derive(Debug, Clone, PartialEq)]
@@ -612,6 +690,10 @@ pub(crate) struct Blocks {
     pub(crate) detection: Vec<f64>,
     /// `Qbin[n] = Σ_k max_c q_c[k, n]`.
     pub(crate) steps: Vec<f64>,
+    /// NMR of each frame per channel (band mean of noise / mask), `[n * channels + c]`.
+    pub(crate) nmr: Vec<f64>,
+    /// Data range of each reference channel for `Total NMR` ([`nmr`]).
+    pub(crate) nmr_bounds: Vec<Option<(usize, usize)>>,
 }
 
 impl Blocks {
@@ -627,6 +709,7 @@ impl Blocks {
     /// The two MOVs over frames `range`, plus (valid frames, distorted frames) there.
     pub(crate) fn movs(&self, range: core::ops::Range<usize>) -> (Movs, usize, usize) {
         let ch = self.channels;
+        let range_copy = range.clone();
         let (mut num, mut den) = (vec![0.0; ch], vec![0.0; ch]);
         // ADB (§4.7, §4.7.2) on the binaural channel (eqs 79–82).
         // INTERPRETATION: Qsum adds Qbin[n] of the distorted frames only (Pbin[n] > 0.5),
@@ -662,39 +745,77 @@ impl Blocks {
         } else {
             -0.5
         };
-        (Movs { avg_mod_diff1, adb }, n_valid, n_distorted)
+        let total_nmr = self.total_nmr(range_copy);
+        (
+            Movs {
+                avg_mod_diff1,
+                adb,
+                total_nmr,
+            },
+            n_valid,
+            n_distorted,
+        )
+    }
+
+    /// `Total NMR` (dB) over frames `range`: per channel, the frames from one before the
+    /// first data frame to the last data frame of that channel ([`nmr`]), then
+    /// `10·log10(mean)` (floor 1e-12), channels averaged. NaN if no frame qualifies.
+    pub(crate) fn total_nmr(&self, range: core::ops::Range<usize>) -> f64 {
+        let ch = self.channels;
+        let mut sum_db = 0.0;
+        for c in 0..ch {
+            let (lo, hi) = match self.nmr_bounds[c] {
+                Some((s, e)) => (
+                    (s / STEP).saturating_sub(1),
+                    (e / STEP).min(self.frames - 1) + 1,
+                ),
+                None => (0, self.frames),
+            };
+            let (lo, hi) = (lo.max(range.start), hi.min(range.end).min(self.frames));
+            if lo >= hi {
+                return f64::NAN;
+            }
+            let mean = (lo..hi).map(|n| self.nmr[n * ch + c]).sum::<f64>() / (hi - lo) as f64;
+            sum_db += 10.0 * mean.max(1e-12).log10();
+        }
+        sum_db / ch.max(1) as f64
     }
 }
 
 /// Per-block values from frame-by-frame reference and test contributions.
 ///
-/// `reference(n, out)` writes the reference contributions of frame `n` (one per channel,
-/// frames asked in order); `test` is the test signal's frame stream.
+/// `reference(n, frames, mags)` writes the reference contributions of frame `n` and its NMR
+/// magnitude spectra (one per channel, frames asked in order); `test` is the test signal's
+/// frame stream.
 fn blocks_from<G: Signal>(
     ch: usize,
     len: usize,
-    bounds: Option<(usize, usize)>,
-    mut reference: impl FnMut(usize, &mut Vec<RefFrame>) -> Result<(), Error>,
+    (bounds, nmr_bounds): Bounds,
+    mut reference: impl FnMut(usize, &mut Vec<RefFrame>, &mut Vec<[f64; BINS]>) -> Result<(), Error>,
     test: &mut Analysis<G>,
 ) -> Result<Blocks, Error> {
     let frames = frame_count(len);
+    let nmr_model = &test.model.nmr;
     let mut b = Blocks {
         channels: ch,
         frames,
         bounds,
+        nmr: Vec::with_capacity(frames * ch),
+        nmr_bounds,
         mod_diff: Vec::with_capacity(frames * ch),
         weight: Vec::with_capacity(frames * ch),
         detection: Vec::with_capacity(frames),
         steps: Vec::with_capacity(frames),
     };
-    let (mut rf, mut tf) = (Vec::with_capacity(ch), Vec::with_capacity(ch));
+    let (mut rf, mut rm, mut tf) = (Vec::with_capacity(ch), Vec::new(), Vec::with_capacity(ch));
     for n in 0..frames {
-        reference(n, &mut rf)?;
+        reference(n, &mut rf, &mut rm)?;
         test.next_frame(&mut tf)?;
         let tfs: Vec<TestFrame> = tf.iter().map(test_frame).collect();
         for c in 0..ch {
             b.mod_diff.push(mod_diff1(&rf[c], &tfs[c]));
             b.weight.push(rf[c].weight);
+            b.nmr.push(nmr_model.local(&rm[c], &tf[c].mag, &rf[c].mask));
         }
         let mut p_keep = 1.0; // Π (1 - p_bin)
         let mut q_frame = 0.0;
@@ -720,17 +841,23 @@ pub(crate) fn blocks_of<R: Signal, T: Signal>(mut reference: R, test: T) -> Resu
     let ch = reference.channels().min(test.channels());
     let len = reference.len().min(test.len());
     let bounds = data_bounds(&mut reference, len)?;
+    let nmr_bounds = channel_bounds(&mut reference, len, ch)?;
     let mut r = Analysis::new(&model, reference);
     let mut t = Analysis::new(&model, test);
     let mut buf = Vec::with_capacity(ch);
+    let mut ef = vec![[0.0; Z]; ch];
     blocks_from(
         ch,
         len,
-        bounds,
-        |_, out| {
+        (bounds, nmr_bounds),
+        |_, out, mags| {
             r.next_frame(&mut buf)?;
             out.clear();
-            out.extend(buf.iter().map(|f| model.ref_frame(f)));
+            mags.clear();
+            for (f, e) in buf.iter().zip(ef.iter_mut()) {
+                out.push(model.ref_frame(f, e));
+                mags.push(f.mag);
+            }
             Ok(())
         },
         &mut t,
@@ -773,9 +900,12 @@ impl<'a> RefModel<'a> {
         let total = a.own_frames;
         let mut frames = Vec::with_capacity(total * ch);
         let mut buf = Vec::with_capacity(ch);
+        let mut ef = vec![[0.0; Z]; ch];
         for _ in 0..total {
             a.next_frame(&mut buf).expect("in-memory input cannot fail");
-            frames.extend(buf.iter().map(|f| model.ref_frame(f)));
+            for (f, e) in buf.iter().zip(ef.iter_mut()) {
+                frames.push(model.ref_frame(f, e));
+            }
         }
         drop(a);
         Self {
@@ -796,14 +926,22 @@ impl<'a> RefModel<'a> {
         let len = self.input.len().min(test.len());
         let mut input = self.input;
         let bounds = data_bounds(&mut input, len).expect("in-memory input cannot fail");
+        let nmr_bounds = channel_bounds(&mut input, len, ch).expect("in-memory input cannot fail");
         let mut t = Analysis::new(&self.model, test);
+        // The reference spectra are recomputed (FFT only), not stored.
+        let mut spectra = Analysis::new(&self.model, self.input);
+        spectra.spectra_only = true;
+        let mut buf = Vec::with_capacity(rch);
         blocks_from(
             ch,
             len,
-            bounds,
-            |n, out| {
+            (bounds, nmr_bounds),
+            |n, out, mags| {
+                spectra.next_frame(&mut buf)?;
                 out.clear();
                 out.extend_from_slice(&self.frames[n * rch..n * rch + ch]);
+                mags.clear();
+                mags.extend(buf.iter().take(ch).map(|f| f.mag));
                 Ok(())
             },
             &mut t,

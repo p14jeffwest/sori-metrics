@@ -1,6 +1,6 @@
 [package]
 name = "sori-metrics"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
 description = "Objective audio quality metrics in pure Rust: the 2f model (on an ITU-R BS.1387 Basic ear model) and a ViSQOL v3 audio-mode compatible MOS for music"
@@ -13,6 +13,7 @@ categories = ["multimedia::audio", "science"]
 include = [
     "/Cargo.toml",
     "/README.md",
+    "/CHANGELOG.md",
     "/NOTICE",
     "/LICENSE-MIT",
     "/LICENSE-APACHE",

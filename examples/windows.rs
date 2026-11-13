@@ -9,7 +9,7 @@
 //! files (`.f32`, 48 kHz, `--channels`, default 2). Neither file is loaded whole.
 //!
 //! Output (tab-separated):
-//! - `total  twof  <mushra> <adb> <avg_mod_diff1>` and `total  visqol  <moslqo> <vnsim> <lag>`;
+//! - `total  twof  <mushra> <adb> <avg_mod_diff1> <total_nmr dB>` and `total  visqol  <moslqo> <vnsim> <lag>`;
 //! - one `window` line per window: start and end (s), then for 2f the valid and distorted
 //!   blocks, the distorted share and the window 2f (empty if no valid block), then for ViSQOL
 //!   the patches and the window MOS (empty if none);
@@ -124,8 +124,8 @@ fn main() {
     if let Some(d) = &twof {
         let s = d.score;
         println!(
-            "total\ttwof\t{:.6}\t{:.6}\t{:.6}",
-            s.mushra, s.adb, s.avg_mod_diff1
+            "total\ttwof\t{:.6}\t{:.6}\t{:.6}\t{:.6}",
+            s.mushra, s.adb, s.avg_mod_diff1, s.total_nmr
         );
     }
     if let Some(v) = &visqol {
