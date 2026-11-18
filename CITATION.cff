@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "sori-metrics"
+abstract: >-
+  Objective audio quality metrics in pure Rust: the 2f model (on an ITU-R BS.1387 Basic ear
+  model), a ViSQOL v3 audio-mode compatible MOS for music, Total NMR, and BSS Eval v4 / SI-SDR
+  scores for music source separation.
+authors:
+  - name: "Jeff (p14jeffwest)"
+    # orcid: "https://orcid.org/[ORCID]"
+version: "0.3.0"
+date-released: "2026-11-18"
+license:
+  - MIT
+  - Apache-2.0
+repository-code: "https://github.com/p14jeffwest/sori-metrics"
+url: "https://crates.io/crates/sori-metrics"
+keywords:
+  - audio quality
+  - objective metrics
+  - PEAQ
+  - ViSQOL
+  - source separation
+  - Rust

@@ -7,6 +7,10 @@ Objective perceptual audio quality metrics in pure Rust — no dependencies, no 
 - **ViSQOL v3 audio-mode compatible** MOS-LQO (1–5) for music and general audio.
 - **Total NMR** (`Total NMR_B`, dB): noise-to-mask ratio of the same ear model, reported with
   2f (`twof.total_nmr`) from the same pass.
+- **Source separation (music)**: the BSS Eval image criteria SDR, ISR, SIR and SAR per window
+  with track medians, in the version-4 form used by the SiSEC 2018 evaluation (time-invariant
+  512-tap distortion filters, 1 s windows), and SI-SDR / SI-SIR / SI-SAR (`separation`). For
+  evaluating music source separation; not validated for speech separation.
 
 **ViSQOL here is the audio (music) mode only. It is not intended or validated for speech
 quality estimation**, and there is no speech mode (no voice activity detection, no speech
@@ -22,7 +26,7 @@ method the code follows.
 
 ```toml
 [dependencies]
-sori-metrics = "0.2"
+sori-metrics = "0.3"
 ```
 
 ```rust
@@ -90,6 +94,30 @@ cargo run --release --example twof   -- reference.wav test.wav
 cargo run --release --example visqol -- reference.wav test.wav
 cargo run --release --example visqol -- --batch pairs.tsv     # reference<TAB>test per line
 ```
+
+### Source separation
+
+Pass the reference and estimated image of every source (interleaved, same length and channel
+count, any sample rate). For a target against its accompaniment, pass two sources: the target
+and the sum of the others.
+
+```rust
+use sori_metrics::separation::{bss_eval, scale_invariant, Options};
+
+let refs = [&vocals[..], &drums[..], &bass[..], &other[..]];
+let ests = [&vocals_est[..], &drums_est[..], &bass_est[..], &other_est[..]];
+let scores = bss_eval(&refs, &ests, 2, &Options::new(44_100))?;
+for (j, s) in scores.iter().enumerate() {
+    let m = s.median(); // track value: median over the scored 1 s windows
+    println!("source {j}: SDR {:.2} ISR {:.2} SIR {:.2} SAR {:.2}", m.sdr, m.isr, m.sir, m.sar);
+    // s.frames: per-window values (NaN where a reference source is silent)
+}
+let si = scale_invariant(&refs, &ests, 2, true)?; // zero-mean SI-SDR, per channel and mean
+println!("SI-SDR of source 0: {:.2} dB", si[0].mean.si_sdr);
+```
+
+`cargo run --release --example separation -- REF1 EST1 REF2 EST2 ...` prints the same for WAV
+files.
 
 ### Input requirements
 
@@ -163,6 +191,27 @@ three synthetic pairs, shipped in `tests/data/visqol-intermediate/`): band centr
 within 4e-12 Hz; the SVR stage (reference per-band similarities in, MOS out) within 3e-14;
 per-band similarity `fvnsim` median |Δ| about 0.0003.
 
+### Source separation vs `museval` 0.4.1 and `pb_bss_eval` 0.0.2 (60 estimates)
+
+Ten 8.5 s stereo mixtures at 44.1 kHz built from the public clips (vocals, drums, bass, other;
+`scripts/separation-data.py`), with estimates made by filtering, delay, leakage of the other
+sources, noise and clipping; scored as four sources and as vocals against accompaniment
+(40 + 20 estimates, 432 windows). The reference outputs ship in
+`tests/data/separation-public.tsv`.
+
+| | max \|Δ\| |
+|---|---|
+| BSS Eval v4 track medians (SDR, ISR, SIR, SAR) | 2.0e-9 dB |
+| BSS Eval v4, every window and criterion (NaN pattern identical) | 2.9e-9 dB |
+| SI-SDR (zero-mean) | 2.7e-8 dB, after the reference tool's `+1e-8` floor (see below) |
+
+On a 3.5-minute 44.1 kHz stereo song with four sources (release build, one thread, 2-core cloud
+VM): BSS Eval 10.5–15 s, SI-SDR 1.4 s; the process peak is 640 MiB, of which 571 MiB are the
+eight input signals, so the metric adds 69 MiB (mostly the 4096 × 4096 normal equations, kept
+as a packed triangle). In wasm32 (inputs copied into linear memory) 21 s and 639 MiB of linear
+memory. `museval` took 40 s and 2.0 GiB for the first minute of that song and was killed for
+lack of memory (8 GiB machine) on the whole song.
+
 ### Speed (one 3-minute stereo pair, 48 kHz, release build, one thread, 2-core cloud VM)
 
 | | time |
@@ -227,6 +276,16 @@ Measure on your own files with
 - Only what these metrics need is implemented: of the PEAQ® Basic MOVs only `AvgModDiff1B`,
   `ADBB` and `Total NMR_B`; no ODG, no ViSQOL speech mode, no resampling.
 - ViSQOL fields `fvdegenergy`, `fstdnsim` and `fvnsim10` are not computed.
+- **Source separation**: only the image criteria in the v4 form (time-invariant filters); no
+  framewise-filter (v3) or "sources" variant, no permutation search, and only full windows are
+  scored. A window in which any reference source is digitally silent is not scored, for every
+  source. When the normal equations are singular (a reference channel silent for the whole
+  track, or two exactly proportional channels such as a mono source copied to both channels),
+  a tiny diagonal load is added and the scores are not comparable with other implementations;
+  add a little independent noise to such references, or score the channels separately.
+- **SI-SDR** follows the definition exactly. `pb_bss_eval` adds `1e-8` to the energy ratio
+  (and to `‖s‖²`), which matters only below about −50 dB (0.01 dB at −53.8 dB); it always
+  removes the mean, which corresponds to `zero_mean = true` here.
 
 ## Sources and provenance
 
@@ -246,12 +305,23 @@ Implemented from:
 - M. Slaney, "An Efficient Implementation of the Patterson-Holdsworth Auditory Filter Bank",
   Apple Computer Technical Report #35, 1993.
 - The libsvm model-file format and nu-SVR prediction as documented by libsvm.
+- E. Vincent, R. Gribonval, C. Févotte, "Performance measurement in blind audio source
+  separation", IEEE Trans. Audio, Speech, and Language Processing 14(4), 1462–1469, 2006.
+- E. Vincent, H. Sawada, P. Bofill, S. Makino, J. P. Rosca, "First stereo audio source
+  separation evaluation campaign: data, algorithms and results", ICA 2007, LNCS 4666 (image
+  criteria ISR, SIR, SAR).
+- F.-R. Stöter, A. Liutkus, N. Ito, "The 2018 Signal Separation Evaluation Campaign", LVA/ICA
+  2018, LNCS 10891 (BSS Eval v4: time-invariant filters, 1 s windows, median per track).
+- J. Le Roux, S. Wisdom, H. Erdogan, J. R. Hershey, "SDR – half-baked or well done?", ICASSP
+  2019 (SI-SDR, SI-SIR, SI-SAR).
 
 Where these texts leave a choice open, the choice was fixed by comparing with the **outputs**
 of `seabass-2f` and `visqol-python` (3.8.0) on test signals; each such choice is marked in the
 code (`INTERPRETATION` comments for 2f; the module and constant docs for ViSQOL). The source
 code of `seabass-2f`, `visqol-python`, Google's ViSQOL (C++), GstPEAQ and peaqb was **not**
-read or used.
+read or used. For source separation, the window framing, zero padding and silent-window rule
+that the papers leave open were fixed from the outputs of `museval` (run as a black box); the
+code of `museval`, `fast_bss_eval`, `mir_eval` and `pb_bss_eval` was not read.
 
 Transparency note: while evaluating the `visqol-rs` crate (0.4.1, Apache-2.0) as a possible
 dependency, before this implementation started, parts of its source were read (configuration

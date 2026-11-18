@@ -6,6 +6,8 @@
 //!   model that 2f needs (`AvgModDiff1B`, `ADBB`).
 //! - [`visqol`]: a **ViSQOL v3 audio-mode compatible** implementation (MOS-LQO 1–5) for
 //!   music and general audio — **audio mode only, not for speech quality estimation**.
+//! - [`separation`]: **music source separation** scores: BSS Eval image criteria (SDR, ISR,
+//!   SIR, SAR) per window in the version-4 form of SiSEC 2018, and SI-SDR.
 //! - [`source`]: signals read piece by piece (WAV files on disk, slices, your own storage)
 //!   for [`twof::detail_source`] and [`visqol::score_source`], which never hold a whole
 //!   signal.
@@ -21,7 +23,7 @@
 //!
 //! # Input
 //!
-//! Both metrics take interleaved `f32` samples in `[-1, 1]` at **48 kHz**, already time
+//! The two perceptual metrics take interleaved `f32` samples in `[-1, 1]` at **48 kHz**, already time
 //! aligned with the reference (ViSQOL also aligns globally itself). Resample beforehand; other
 //! rates are rejected with [`Error::SampleRate`]. 2f analyses up to two channels separately;
 //! ViSQOL averages all channels to mono.
@@ -67,6 +69,7 @@
 
 pub(crate) mod fft;
 pub mod peaq;
+pub mod separation;
 pub mod source;
 pub mod twof;
 pub mod visqol;
@@ -90,6 +93,8 @@ pub enum Error {
     Wav(String),
     /// Malformed or unsupported SVR model data.
     Model(String),
+    /// Inputs that do not fit together (source counts, signal lengths, channel layout).
+    Mismatch(String),
 }
 
 impl core::fmt::Display for Error {
@@ -100,6 +105,7 @@ impl core::fmt::Display for Error {
             Self::TooShort(n) => write!(f, "signal too short: {n} samples per channel"),
             Self::Wav(m) => write!(f, "WAV: {m}"),
             Self::Model(m) => write!(f, "model: {m}"),
+            Self::Mismatch(m) => write!(f, "inputs do not match: {m}"),
         }
     }
 }

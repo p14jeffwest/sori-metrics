@@ -1,9 +1,9 @@
 [package]
 name = "sori-metrics"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.85"
-description = "Objective audio quality metrics in pure Rust: the 2f model (on an ITU-R BS.1387 Basic ear model) and a ViSQOL v3 audio-mode compatible MOS for music"
+description = "Objective audio quality metrics in pure Rust: the 2f model (on an ITU-R BS.1387 Basic ear model), a ViSQOL v3 audio-mode compatible MOS for music, and BSS Eval v4 / SI-SDR scores for music source separation"
 license = "MIT OR Apache-2.0"
 authors = ["Jeff (p14jeffwest)"]
 repository = "https://github.com/p14jeffwest/sori-metrics"
@@ -21,6 +21,7 @@ include = [
     "/data/visqol/*",
     "/examples/twof.rs",
     "/examples/visqol.rs",
+    "/examples/separation.rs",
 ]
 
 [dependencies]
@@ -32,3 +33,4 @@ module_name_repetitions = "allow"
 must_use_candidate = "allow"
 struct_excessive_bools = "allow"
 cast_lossless = "allow"
+large_types_passed_by_value = "allow"

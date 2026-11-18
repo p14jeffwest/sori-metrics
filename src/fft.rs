@@ -47,8 +47,7 @@ impl Fft {
     /// If `buf.len()` differs from the planned size.
     pub fn forward(&self, buf: &mut [Complex]) {
         assert_eq!(buf.len(), self.n, "FFT buffer length");
-        for i in 0..self.n {
-            let j = self.rev[i];
+        for (i, &j) in self.rev.iter().enumerate() {
             if j > i {
                 buf.swap(i, j);
             }

@@ -48,6 +48,8 @@ fn decimate(x: &impl Blocks, mut put: impl FnMut(usize, f64)) -> usize {
 /// Lag of the cross-correlation maximum `c[L] = Σ rc[n] · dc[n + L]` of the decimated
 /// signals, via one complex FFT holding both (real/imaginary packing), computed in place:
 /// the only buffer is the transform itself. Ties go to the most negative lag.
+// `0.5 * (x + y)` kept as written (same rounding; `f64::midpoint` would raise the MSRV).
+#[allow(unknown_lints, clippy::manual_midpoint)]
 #[allow(clippy::cast_possible_wrap, clippy::cast_precision_loss)]
 fn coarse_lag(r: &impl Blocks, d: &impl Blocks) -> isize {
     let (rn, dn) = (r.len().div_ceil(DECIM), d.len().div_ceil(DECIM));

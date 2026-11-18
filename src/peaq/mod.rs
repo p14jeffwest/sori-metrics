@@ -419,6 +419,9 @@ impl<'m, G: Signal> Analysis<'m, G> {
     }
 
     /// FFT of `(a, b)` windowed frames (`None` = zeros) into `fsp[0]`, `fsp[1]`.
+    // `0.5 * (x + y)` is kept as written (same rounding as before; `f64::midpoint` would also
+    // raise the MSRV). The lint exists only in newer clippy, hence `unknown_lints`.
+    #[allow(unknown_lints, clippy::manual_midpoint)]
     fn transform(&mut self, a: (usize, usize), b: Option<(usize, usize)>) {
         let m = self.model;
         let inp = &self.input;

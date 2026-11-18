@@ -5,10 +5,14 @@
 //! ```text
 //! cargo run -p sori-metrics --example write_fixtures -- <out_dir>
 //! ```
-//! Writes `<name>.ref.wav` and `<name>.test.wav` per pair and `pairs.tsv`.
+//! Writes `<name>.ref.wav` and `<name>.test.wav` per pair and `pairs.tsv`, and for the
+//! source-separation sets of `tests/separation.rs` `<name>.ref<j>.wav` / `<name>.est<j>.wav`
+//! per source.
 
 use std::fmt::Write as _;
 
+#[path = "../tests/common/separation.rs"]
+mod separation;
 #[path = "../tests/common/signals.rs"]
 mod signals;
 
@@ -32,4 +36,16 @@ fn main() {
         let _ = writeln!(list, "{}\t{}", r.display(), t.display());
     }
     std::fs::write(out.join("pairs.tsv"), list).expect("write pairs.tsv");
+    for set in separation::all() {
+        for (j, (r, e)) in set.references.iter().zip(&set.estimates).enumerate() {
+            for (kind, x) in [("ref", r), ("est", e)] {
+                let path = out.join(format!("{}.{kind}{j}.wav", set.name));
+                std::fs::write(
+                    path,
+                    sori_metrics::wav::encode_f32(set.rate, set.channels, x),
+                )
+                .expect("write separation fixture");
+            }
+        }
+    }
 }
