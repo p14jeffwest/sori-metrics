@@ -11,9 +11,9 @@ authors:
     # orcid: "https://orcid.org/[ORCID]"
 version: "0.3.0"
 date-released: "2026-11-18"
-license:
-  - MIT
-  - Apache-2.0
+# Licensed MIT OR Apache-2.0 (see LICENSE-MIT, LICENSE-APACHE). Zenodo accepts one licence
+# identifier here, so only the first is named.
+license: MIT
 repository-code: "https://github.com/p14jeffwest/sori-metrics"
 url: "https://crates.io/crates/sori-metrics"
 keywords:
