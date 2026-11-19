@@ -174,6 +174,8 @@ impl SourceScores {
 }
 
 /// Median of the finite-or-infinite (non-`NaN`) values; `NaN` if there are none.
+// `0.5 * (x + y)` kept as written (same rounding; `f64::midpoint` would raise the MSRV).
+#[allow(unknown_lints, clippy::manual_midpoint)]
 fn nan_median(values: impl Iterator<Item = f64>) -> f64 {
     let mut v: Vec<f64> = values.filter(|x| !x.is_nan()).collect();
     if v.is_empty() {
@@ -362,6 +364,8 @@ fn block_fft_len(l: usize) -> usize {
 }
 
 /// Forward transform of two real signals at once; returns their half spectra (`0..=n/2`).
+// `0.5 * (x + y)` kept as written (same rounding; `f64::midpoint` would raise the MSRV).
+#[allow(unknown_lints, clippy::manual_midpoint)]
 fn forward_pair(fft: &Fft, buf: &mut [Complex], x: &mut [Complex], y: &mut [Complex]) {
     fft.forward(buf);
     let n = buf.len();

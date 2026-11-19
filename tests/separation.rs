@@ -9,6 +9,9 @@
 //!    (`syn-mixNN/{ref,est}-{vocals,drums,bass,other,accompaniment}.wav`). Audio is never
 //!    committed. Run it with `--release`: each mixture solves a 4096-unknown system.
 
+// `0.5 * (x + y)` as in the crate (newer Clippy calls it a manual midpoint).
+#![allow(unknown_lints, clippy::manual_midpoint)]
+
 mod common;
 
 use common::separation::{self as sets, Set};
