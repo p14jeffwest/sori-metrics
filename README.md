@@ -1,5 +1,7 @@
 # sori-metrics
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24372315.svg)](https://doi.org/10.5281/zenodo.24372315)
+
 Objective perceptual audio quality metrics in pure Rust — no dependencies, no `unsafe`.
 
 - **2f model** (Kastner & Herre, 2019): estimated mean MUSHRA score (0–100) from two Model Output
